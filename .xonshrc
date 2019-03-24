@@ -1,0 +1,156 @@
+#!/usr/bin/env xonsh
+
+import os
+
+import builtins
+from prompt_toolkit.key_binding import vi_state
+
+# XONSH WIZARD START
+source-bash "echo loading xonsh foreign shell"
+xontrib load apt_tabcomplete autoxsh coreutils distributed docker_tabcomplete jedi mpl prompt_ret_code whole_word_jumping scrapy_tabcomplete vox xonda 
+
+$PROJECT_DIRS=$HOME
+
+$VI_MODE = True
+
+# XONSH WIZARD END
+#
+
+aliases['dctl'] = 'cd ~/ctl/docker'
+
+# PROMPT
+
+user = ''
+distro = ''
+
+
+#$UPDATE_PROMPT_ON_KEYPRESS = True
+
+from prompt_toolkit.keys import Keys
+
+@events.on_ptk_create
+def custom_keybindings(bindings, **kw):
+    # prompt_toolkit 2.x
+    handler = bindings.add
+
+    @handler(Keys.ControlW)
+    def say_hi(event):
+        event.current_buffer.insert_text('hi')
+
+
+class VEnv:
+
+	@classmethod 
+	def name(cls):
+		venv = ${...}.get('VIRTUAL_ENV')
+		if venv:
+			return os.path.basename(venv)
+		return None
+
+class Git:
+
+	@classmethod
+	def inside_worktree(cls):
+		return $(git rev-parse --is-inside-work-tree).strip() == 'true'
+    
+	@classmethod
+	def full_repo_path(cls):
+		return $(git rev-parse --show-toplevel).strip()
+
+	@classmethod
+	def repo_name(cls):
+		return os.path.basename(cls.full_repo_path())
+
+	@classmethod 
+	def isx(cls, xcmd):
+		orig = $(pwd).strip()
+		while True:
+			x = xcmd()
+			if x:
+				cd @(orig)
+				return True 
+			if $(pwd).strip() in { $HOME, '/' }:
+				cd @(orig)
+				return False
+			cd ..
+
+	@classmethod 
+	def is_nodejs(cls):
+		return cls.isx(lambda: $(ls package.json))
+
+	@classmethod 
+	def is_python(cls):
+		return cls.isx(lambda: $(ls setup.py))
+
+	@classmethod
+	def is_cpp(cls):
+		return cls.isx(cls._is_cpp)
+
+	@classmethod 
+	def _is_cpp(cls):
+		return $(ls Makefile)
+
+	@classmethod 
+	def is_R(cls):
+		return os.path.isdir('R')
+
+	@classmethod 
+	def has_dockerfile(cls):
+		return cls.isx(lambda: $(ls Dockerfile))
+
+def prompt():
+	p = ''
+	p += distro+' |'
+	venv = VEnv.name()
+	if venv is not None:
+		p += ' ('+venv+')|'
+	#p += user+'{INTENSE_GREEN}@{NO_COLOR} '+distro+' '
+	if Git.inside_worktree():
+		p += ''
+		repo = Git.repo_name()
+		p += ' ({INTENSE_YELLOW}'+repo+'{NO_COLOR}:{GREEN}{curr_branch}{NO_COLOR})'
+		tech = []
+		if Git.is_nodejs():
+			tech.append( ' ' )
+		if Git.is_python():
+			tech.append( ' ' )
+		if Git.is_R():
+			tech.append( ' ' )
+		if Git.is_cpp():
+			tech.append( ' ' )
+		if Git.has_dockerfile():
+			tech.append( ' ' )
+		if tech:
+			p += '|' + ':'.join(tech)
+		p += '|'
+	cursor = ''
+	if $(pwd).strip() == $HOME+'/ctl/docker':
+		cursor = ''
+	p += '{INTENSE_GREEN}'+cursor+'{NO_COLOR} '
+	return p
+
+$PROMPT = prompt 
+
+'''
+from queue import Queue
+
+origin_dir = Queue()
+origin_dir.put($HOME)
+
+@events.on_precommand
+def _origin_dir(**kw):
+	cwd = os.getcwd() 
+	if cwd != $HOME+'/ctl/docker':
+		origin_dir.get()
+		origin_dir.put(cwd) 
+'''
+
+# CMD hooks
+@events.on_transform_command
+def _dctl(cmd, **kw):
+	cwd = os.getcwd()
+	if cwd == $HOME+'/ctl/docker':
+		if not cmd.startswith('docker') and \
+		   not cmd.startswith('cd'):
+			cmd = 'docker '+cmd.strip()
+	return cmd
